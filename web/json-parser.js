@@ -1,13 +1,19 @@
 class JSONParser {
   constructor() {
-    this.state = 0;
-    this.ch = null;
-    this.result = "";
-    this.needClose = [];
-    this.isFloat = false;
-    this.nullBool = "";
+    this.state = 0; // Current state of the parser
+    this.ch = null; // Current character being processed
+    this.result = ""; // Accumulated result string
+    this.needClose = []; // Stack to track open brackets/braces that need closing
+    this.isFloat = false; // Flag to indicate if a numeric value is a float
+    this.nullBool = ""; // Temporary storage for potential null, true, or false values
   }
 
+  /**
+   * Parses and fixes a JSON string.
+   *
+   * @param {string} val - The input JSON string to be parsed and fixed.
+   * @returns {string} The fixed JSON string.
+   */
   parseAndFix(val) {
     if (val.length === 0) return "";
     if (val.at(0) !== "{") val = "{" + val;
@@ -16,33 +22,12 @@ class JSONParser {
       if (ch === " " || ch === "\n" || ch === "\t") continue;
 
       this.ch = ch;
-
       this.handleState();
     }
 
-    this.ch = null;
+    this.handleLastState();
 
-    switch (this.state) {
-      case 2:
-        this.result += this.result.at(-1) === '"' ? "autoFilled" : "";
-        this.ch = '"';
-        this.state2();
-        this.ch = ":";
-        this.state3();
-        this.state4();
-        break;
-      case 3:
-        this.state3();
-        break;
-      case 4:
-        if (this.result.at(-1) === "[") break;
-        this.state4();
-        break;
-      case 7:
-        this.state7();
-        break;
-    }
-
+    // Close remaining brackets/braces
     while (this.needClose.length > 0) {
       this.removeTrailingComma();
       this.result += this.needClose.pop();
@@ -53,12 +38,14 @@ class JSONParser {
     return this.result;
   }
 
+  // Handles Object start
   state0() {
     this.needClose.push("}");
     this.result += this.ch;
     this.state = 1;
   }
 
+  // Handles Object end or next key start
   state1() {
     if (this.ch === "}") {
       this.removeTrailingComma();
@@ -72,6 +59,7 @@ class JSONParser {
     this.state = 2;
   }
 
+  // Handles Object Key
   state2() {
     if (this.ch === '"' || this.ch === "'") {
       this.ch = '"';
@@ -83,6 +71,7 @@ class JSONParser {
     this.result += this.ch;
   }
 
+  // Handles Object Key end
   state3() {
     this.state = 4;
     if (this.ch === ":" || this.ch === "=") {
@@ -94,6 +83,7 @@ class JSONParser {
     }
   }
 
+  // Handles Value start (string, digit, object, array, null, bool)
   state4() {
     if (this.ch === '"' || this.ch === "'") {
       this.result += '"';
@@ -115,6 +105,7 @@ class JSONParser {
     }
   }
 
+  // Handles String Value
   state5() {
     if (this.ch === '"' || this.ch === "'") {
       this.ch = '"';
@@ -123,6 +114,7 @@ class JSONParser {
     this.result += this.ch;
   }
 
+  // Handles Number Value
   state6() {
     if (this.isDigit()) {
       this.result += this.ch;
@@ -136,6 +128,7 @@ class JSONParser {
     }
   }
 
+  // Handles Null / Bool
   state7() {
     const keywords = ["null", "true", "false"];
     const tmp = this.nullBool + this.ch;
@@ -154,7 +147,7 @@ class JSONParser {
     }
   }
 
-  // End of Value State
+  // Handles End of Value
   state8() {
     switch (this.ch) {
       case ",":
@@ -214,6 +207,30 @@ class JSONParser {
         break;
       case 8:
         this.state8();
+        break;
+    }
+  }
+
+  handleLastState() {
+    this.ch = null;
+    switch (this.state) {
+      case 2:
+        this.result += this.result.at(-1) === '"' ? "autoFilled" : "";
+        this.ch = '"';
+        this.state2();
+        this.ch = ":";
+        this.state3();
+        this.state4();
+        break;
+      case 3:
+        this.state3();
+        break;
+      case 4:
+        if (this.result.at(-1) === "[") break;
+        this.state4();
+        break;
+      case 7:
+        this.state7();
         break;
     }
   }
