@@ -53,23 +53,33 @@ class JSONParser {
 
   // Handles Value start (object, string, number, array, null, bool)
   state0() {
-    if (this.ch === "{") {
-      this.state1();
-    } else if (this.ch === '"' || this.ch === "'") {
-      this.result.push('"');
-      this.state = JSONParser.states.STRING_VALUE;
-    } else if (this.isDigit()) {
-      this.result.push(this.ch);
-      this.state = JSONParser.states.NUMBER_VALUE;
-    } else if (this.ch === "[") {
-      this.needClose.push("]");
-      this.result.push(this.ch);
-    } else if (this.ch === "n" || this.ch === "t" || this.ch === "f") {
-      this.nullBool += this.ch;
-      this.state = JSONParser.states.NULL_BOOL_VALUE;
-    } else {
-      this.result.push("n", "u", "l", "l");
-      this.state = JSONParser.states.VALUE_END;
+    switch (this.ch) {
+      case "{":
+        this.state1();
+        break;
+      case '"':
+      case "'":
+        this.result.push('"');
+        this.state = JSONParser.states.STRING_VALUE;
+        break;
+      case "[":
+        this.needClose.push("]");
+        this.result.push(this.ch);
+        break;
+      case "n":
+      case "t":
+      case "f":
+        this.nullBool += this.ch;
+        this.state = JSONParser.states.NULL_BOOL_VALUE;
+        break;
+      default:
+        if (this.isDigit()) {
+          this.result.push(this.ch);
+          this.state = JSONParser.states.NUMBER_VALUE;
+        } else {
+          this.result.push(..."null");
+          this.state = JSONParser.states.VALUE_END;
+        }
     }
   }
 
@@ -146,15 +156,16 @@ class JSONParser {
   state7() {
     const keywords = ["null", "true", "false"];
     const tmp = this.nullBool + this.ch;
+
     if (keywords.includes(tmp)) {
-      this.result.push(...Array.from(tmp));
+      this.result.push(...tmp);
       this.nullBool = "";
       this.state = JSONParser.states.VALUE_END;
-    } else if (keywords.find((w) => w.includes(tmp)) !== undefined) {
+    } else if (keywords.some((w) => w.startsWith(tmp))) {
       this.nullBool += this.ch;
     } else {
-      const keyword = keywords.find((w) => w.includes(this.nullBool));
-      this.result.push(...Array.from(keyword));
+      const keyword = keywords.find((w) => w.startsWith(this.nullBool));
+      this.result.push(...keyword);
       this.nullBool = "";
       this.state = JSONParser.states.VALUE_END;
       this.state8();
@@ -171,6 +182,7 @@ class JSONParser {
             ? JSONParser.states.OBJECT_END_OR_KEY_START
             : JSONParser.states.VALUE_START;
         break;
+
       case "}":
       case "]":
         if (this.needClose.at(-1) === this.ch) {
@@ -178,11 +190,13 @@ class JSONParser {
           this.result.push(this.needClose.pop());
         }
         break;
+
       case '"':
         if (this.needClose.at(-1) === "}") {
           this.result.push(",", this.ch);
           this.state = JSONParser.states.OBJECT_KEY;
         }
+        break;
     }
   }
 
@@ -197,54 +211,41 @@ class JSONParser {
   }
 
   handleState() {
-    switch (this.state) {
-      case 0:
-        this.state0();
-        break;
-      case 1:
-        this.state1();
-        break;
-      case 2:
-        this.state2();
-        break;
-      case 3:
-        this.state3();
-        break;
-      case 4:
-        this.state4();
-        break;
-      case 5:
-        this.state5();
-        break;
-      case 6:
-        this.state6();
-        break;
-      case 7:
-        this.state7();
-        break;
-      case 8:
-        this.state8();
-        break;
+    const stateHandlers = [
+      this.state0,
+      this.state1,
+      this.state2,
+      this.state3,
+      this.state4,
+      this.state5,
+      this.state6,
+      this.state7,
+      this.state8,
+    ];
+
+    const handler = stateHandlers[this.state];
+    if (handler) {
+      handler.call(this);
     }
   }
 
   handleLastState() {
-    this.ch = null;
+    this.ch = "";
+
     switch (this.state) {
       case 0:
-        if (this.result.at(-1) === "[") break;
-        this.state0();
+        if (this.result.at(-1) !== "[") {
+          this.state0();
+        }
         break;
+
       case 3:
         if (this.result.at(-1) === '"') {
-          this.result.push(...Array.from("autoFilled"));
+          this.result.push(..."autoFilled");
         }
-        this.ch = '"';
-        this.state3();
-        this.ch = ":";
-        this.state4();
-        this.state0();
+        this.result.push(...'":null');
         break;
+
       case 7:
         this.state7();
         break;
