@@ -2,7 +2,7 @@ class JSONParser {
   constructor() {
     this.state = 0; // Current state of the parser
     this.ch = null; // Current character being processed
-    this.result = ""; // Accumulated result string
+    this.result = []; // Accumulated result string
     this.needClose = []; // Stack to track open brackets/braces that need closing
     this.isFloat = false; // Flag to indicate if a numeric value is a float
     this.nullBool = ""; // Temporary storage for potential null, true, or false values
@@ -30,18 +30,19 @@ class JSONParser {
     // Close remaining brackets/braces
     while (this.needClose.length > 0) {
       this.removeTrailingComma();
-      this.result += this.needClose.pop();
+      this.result.push(this.needClose.pop());
     }
 
-    console.log(this.result);
+    const result = this.result.join("");
+    console.log(result);
 
-    return this.result;
+    return result;
   }
 
   // Handles Object start
   state0() {
     this.needClose.push("}");
-    this.result += this.ch;
+    this.result.push(this.ch);
     this.state = 1;
   }
 
@@ -49,13 +50,13 @@ class JSONParser {
   state1() {
     if (this.ch === "}") {
       this.removeTrailingComma();
-      this.result += this.needClose.pop();
+      this.result.push(this.needClose.pop());
       this.state = 8;
       return;
     }
-    if (this.ch !== '"') this.result += '"';
+    if (this.ch !== '"') this.result.push('"');
     if (this.ch === "'") this.ch = "";
-    this.result += this.ch;
+    this.result.push(this.ch);
     this.state = 2;
   }
 
@@ -65,10 +66,10 @@ class JSONParser {
       this.ch = '"';
       this.state = 3;
     } else if (this.ch === ":") {
-      this.result += '"';
+      this.result.push('"');
       this.state = 4;
     }
-    this.result += this.ch;
+    this.result.push(this.ch);
   }
 
   // Handles Object Key end
@@ -76,31 +77,31 @@ class JSONParser {
     this.state = 4;
     if (this.ch === ":" || this.ch === "=") {
       this.ch = ":";
-      this.result += this.ch;
+      this.result.push(this.ch);
     } else {
-      this.result += ":";
+      this.result.push(":");
       this.state4();
     }
   }
 
-  // Handles Value start (string, digit, object, array, null, bool)
+  // Handles Value start (string, number, object, array, null, bool)
   state4() {
     if (this.ch === '"' || this.ch === "'") {
-      this.result += '"';
+      this.result.push('"');
       this.state = 5;
     } else if (this.isDigit()) {
-      this.result += this.ch;
+      this.result.push(this.ch);
       this.state = 6;
     } else if (this.ch === "{") {
       this.state0();
     } else if (this.ch === "[") {
       this.needClose.push("]");
-      this.result += this.ch;
+      this.result.push(this.ch);
     } else if (this.ch === "n" || this.ch === "t" || this.ch === "f") {
       this.nullBool += this.ch;
       this.state = 7;
     } else {
-      this.result += "null";
+      this.result.push("n", "u", "l", "l");
       this.state = 8;
     }
   }
@@ -111,15 +112,15 @@ class JSONParser {
       this.ch = '"';
       this.state = 8;
     }
-    this.result += this.ch;
+    this.result.push(this.ch);
   }
 
   // Handles Number Value
   state6() {
     if (this.isDigit()) {
-      this.result += this.ch;
+      this.result.push(this.ch);
     } else if (this.ch === "." && !this.isFloat) {
-      this.result += this.ch;
+      this.result.push(this.ch);
       this.isFloat = true;
     } else {
       this.isFloat = false;
@@ -132,15 +133,15 @@ class JSONParser {
   state7() {
     const keywords = ["null", "true", "false"];
     const tmp = this.nullBool + this.ch;
-    if (keywords.find((w) => w === tmp) !== undefined) {
-      this.result += tmp;
+    if (keywords.includes(tmp)) {
+      this.result.push(...Array.from(tmp));
       this.nullBool = "";
       this.state = 8;
     } else if (keywords.find((w) => w.includes(tmp)) !== undefined) {
       this.nullBool += this.ch;
-      console.log(this.nullBool);
     } else {
-      this.result += keywords.find((w) => w.includes(this.nullBool));
+      const keyword = keywords.find((w) => w.includes(this.nullBool));
+      this.result.push(...Array.from(keyword));
       this.nullBool = "";
       this.state = 8;
       this.state8();
@@ -151,19 +152,19 @@ class JSONParser {
   state8() {
     switch (this.ch) {
       case ",":
-        this.result += this.ch;
+        this.result.push(this.ch);
         this.state = this.needClose.at(-1) === "}" ? 1 : 4;
         break;
       case "}":
       case "]":
         if (this.needClose.at(-1) === this.ch) {
           this.removeTrailingComma();
-          this.result += this.needClose.pop();
+          this.result.push(this.needClose.pop());
         }
         break;
       case '"':
         if (this.needClose.at(-1) === "}") {
-          this.result += "," + this.ch;
+          this.result.push(",", this.ch);
           this.state = 2;
         }
     }
@@ -175,7 +176,7 @@ class JSONParser {
 
   removeTrailingComma() {
     if (this.result.at(-1) === ",") {
-      this.result = this.result.slice(0, -1);
+      this.result.pop();
     }
   }
 
@@ -215,7 +216,9 @@ class JSONParser {
     this.ch = null;
     switch (this.state) {
       case 2:
-        this.result += this.result.at(-1) === '"' ? "autoFilled" : "";
+        if (this.result.at(-1) === '"') {
+          this.result.push(...Array.from("autoFilled"));
+        }
         this.ch = '"';
         this.state2();
         this.ch = ":";
