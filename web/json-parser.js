@@ -1,13 +1,11 @@
 class JSONParser {
   static states = {
     VALUE_START: 0,
-    OBJECT_START: 1,
     OBJECT_END_OR_KEY_START: 2,
     OBJECT_KEY: 3,
     OBJECT_KEY_END: 4,
     STRING_VALUE: 5,
     NUMBER_VALUE: 6,
-    NULL_BOOL_VALUE: 7,
     VALUE_END: 8,
   };
 
@@ -15,9 +13,10 @@ class JSONParser {
     this.state = 0; // Current state of the parser
     this.ch = null; // Current character being processed
     this.result = []; // Accumulated result string
-    this.needClose = []; // Stack to track open brackets/braces that need closing
+    this.needClose = []; // Stack to track open brackets/braces/quotes that need closing
+    this.isNumberZero = false; // Flag to indicate if a numeric value is starting with 0
     this.isFloat = false; // Flag to indicate if a numeric value is a float
-    this.nullBool = ""; // Temporary storage for potential null, true, or false values
+    this.numberValue = [];
   }
 
   /**
@@ -27,11 +26,18 @@ class JSONParser {
    * @returns {string} The fixed JSON string.
    */
   parseAndFix(val) {
+    val = val.trim();
+
     if (val.length === 0) return "";
     if (val.at(0) !== "{") val = "{" + val;
 
     for (const ch of val) {
-      if (ch === " " || ch === "\n" || ch === "\t") continue;
+      if (
+        (ch === " " && this.needClose.at(-1) !== '"') ||
+        ch === "\n" ||
+        ch === "\t"
+      )
+        continue;
 
       this.ch = ch;
       this.handleState();
@@ -55,10 +61,13 @@ class JSONParser {
   state0() {
     switch (this.ch) {
       case "{":
-        this.state1();
+        this.needClose.push("}");
+        this.result.push(this.ch);
+        this.state = JSONParser.states.OBJECT_END_OR_KEY_START;
         break;
       case '"':
       case "'":
+        this.needClose.push('"');
         this.result.push('"');
         this.state = JSONParser.states.STRING_VALUE;
         break;
@@ -67,14 +76,20 @@ class JSONParser {
         this.result.push(this.ch);
         break;
       case "n":
+        this.result.push(..."null");
+        this.state = JSONParser.states.VALUE_END;
+        break;
       case "t":
+        this.result.push(..."true");
+        this.state = JSONParser.states.VALUE_END;
+        break;
       case "f":
-        this.nullBool += this.ch;
-        this.state = JSONParser.states.NULL_BOOL_VALUE;
+        this.result.push(..."false");
+        this.state = JSONParser.states.VALUE_END;
         break;
       default:
-        if (this.isDigit()) {
-          this.result.push(this.ch);
+        if (this.ch === "-" || this.isDigit()) {
+          this.numberValue.push(this.ch);
           this.state = JSONParser.states.NUMBER_VALUE;
         } else {
           this.result.push(..."null");
@@ -83,33 +98,29 @@ class JSONParser {
     }
   }
 
-  // Handles Object start
-  state1() {
-    this.needClose.push("}");
-    this.result.push(this.ch);
-    this.state = JSONParser.states.OBJECT_END_OR_KEY_START;
-  }
-
   // Handles Object end or next key start
   state2() {
     if (this.ch === "}") {
       this.removeTrailingComma();
       this.result.push(this.needClose.pop());
       this.state = JSONParser.states.VALUE_END;
-      return;
+    } else {
+      if (this.ch !== '"') this.result.push('"');
+      if (this.ch === "'") this.ch = "";
+      this.needClose.push('"');
+      this.result.push(this.ch);
+      this.state = JSONParser.states.OBJECT_KEY;
     }
-    if (this.ch !== '"') this.result.push('"');
-    if (this.ch === "'") this.ch = "";
-    this.result.push(this.ch);
-    this.state = JSONParser.states.OBJECT_KEY;
   }
 
   // Handles Object Key
   state3() {
     if (this.ch === '"' || this.ch === "'") {
+      this.needClose.pop();
       this.ch = '"';
       this.state = JSONParser.states.OBJECT_KEY_END;
     } else if (this.ch === ":") {
+      this.needClose.pop();
       this.result.push('"');
       this.state = JSONParser.states.VALUE_START;
     }
@@ -131,6 +142,7 @@ class JSONParser {
   // Handles String Value
   state5() {
     if (this.ch === '"' || this.ch === "'") {
+      this.needClose.pop();
       this.ch = '"';
       this.state = JSONParser.states.VALUE_END;
     }
@@ -140,33 +152,15 @@ class JSONParser {
   // Handles Number Value
   state6() {
     if (this.isDigit()) {
-      this.result.push(this.ch);
+      this.numberValue.push(this.ch);
     } else if (this.ch === "." && !this.isFloat) {
-      this.result.push(this.ch);
+      this.numberValue.push(this.ch);
       this.isFloat = true;
     } else {
-      if (this.result.at(-1) === ".") this.result.push("0");
+      const parsedNum = Number(this.numberValue.join("")).toString();
+      this.result.push(...parsedNum);
+      this.numberValue = [];
       this.isFloat = false;
-      this.state = JSONParser.states.VALUE_END;
-      this.state8();
-    }
-  }
-
-  // Handles Null / Bool
-  state7() {
-    const keywords = ["null", "true", "false"];
-    const tmp = this.nullBool + this.ch;
-
-    if (keywords.includes(tmp)) {
-      this.result.push(...tmp);
-      this.nullBool = "";
-      this.state = JSONParser.states.VALUE_END;
-    } else if (keywords.some((w) => w.startsWith(tmp))) {
-      this.nullBool += this.ch;
-    } else {
-      const keyword = keywords.find((w) => w.startsWith(this.nullBool));
-      this.result.push(...keyword);
-      this.nullBool = "";
       this.state = JSONParser.states.VALUE_END;
       this.state8();
     }
@@ -193,6 +187,7 @@ class JSONParser {
 
       case '"':
         if (this.needClose.at(-1) === "}") {
+          this.needClose.push('"');
           this.result.push(",", this.ch);
           this.state = JSONParser.states.OBJECT_KEY;
         }
@@ -244,10 +239,15 @@ class JSONParser {
           this.result.push(..."autoFilled");
         }
         this.result.push(...'":null');
+        this.needClose.pop();
         break;
 
-      case 7:
-        this.state7();
+      case 4:
+        this.state4();
+        break;
+
+      case 6:
+        this.state6();
         break;
     }
   }
