@@ -1,4 +1,16 @@
 class JSONParser {
+  static states = {
+    VALUE_START: 0,
+    OBJECT_START: 1,
+    OBJECT_END_OR_KEY_START: 2,
+    OBJECT_KEY: 3,
+    OBJECT_KEY_END: 4,
+    STRING_VALUE: 5,
+    NUMBER_VALUE: 6,
+    NULL_BOOL_VALUE: 7,
+    VALUE_END: 8,
+  };
+
   constructor() {
     this.state = 0; // Current state of the parser
     this.ch = null; // Current character being processed
@@ -39,70 +51,70 @@ class JSONParser {
     return result;
   }
 
-  // Handles Object start
+  // Handles Value start (object, string, number, array, null, bool)
   state0() {
-    this.needClose.push("}");
-    this.result.push(this.ch);
-    this.state = 1;
-  }
-
-  // Handles Object end or next key start
-  state1() {
-    if (this.ch === "}") {
-      this.removeTrailingComma();
-      this.result.push(this.needClose.pop());
-      this.state = 8;
-      return;
-    }
-    if (this.ch !== '"') this.result.push('"');
-    if (this.ch === "'") this.ch = "";
-    this.result.push(this.ch);
-    this.state = 2;
-  }
-
-  // Handles Object Key
-  state2() {
-    if (this.ch === '"' || this.ch === "'") {
-      this.ch = '"';
-      this.state = 3;
-    } else if (this.ch === ":") {
+    if (this.ch === "{") {
+      this.state1();
+    } else if (this.ch === '"' || this.ch === "'") {
       this.result.push('"');
-      this.state = 4;
-    }
-    this.result.push(this.ch);
-  }
-
-  // Handles Object Key end
-  state3() {
-    this.state = 4;
-    if (this.ch === ":" || this.ch === "=") {
-      this.ch = ":";
-      this.result.push(this.ch);
-    } else {
-      this.result.push(":");
-      this.state4();
-    }
-  }
-
-  // Handles Value start (string, number, object, array, null, bool)
-  state4() {
-    if (this.ch === '"' || this.ch === "'") {
-      this.result.push('"');
-      this.state = 5;
+      this.state = JSONParser.states.STRING_VALUE;
     } else if (this.isDigit()) {
       this.result.push(this.ch);
-      this.state = 6;
-    } else if (this.ch === "{") {
-      this.state0();
+      this.state = JSONParser.states.NUMBER_VALUE;
     } else if (this.ch === "[") {
       this.needClose.push("]");
       this.result.push(this.ch);
     } else if (this.ch === "n" || this.ch === "t" || this.ch === "f") {
       this.nullBool += this.ch;
-      this.state = 7;
+      this.state = JSONParser.states.NULL_BOOL_VALUE;
     } else {
       this.result.push("n", "u", "l", "l");
-      this.state = 8;
+      this.state = JSONParser.states.VALUE_END;
+    }
+  }
+
+  // Handles Object start
+  state1() {
+    this.needClose.push("}");
+    this.result.push(this.ch);
+    this.state = JSONParser.states.OBJECT_END_OR_KEY_START;
+  }
+
+  // Handles Object end or next key start
+  state2() {
+    if (this.ch === "}") {
+      this.removeTrailingComma();
+      this.result.push(this.needClose.pop());
+      this.state = JSONParser.states.VALUE_END;
+      return;
+    }
+    if (this.ch !== '"') this.result.push('"');
+    if (this.ch === "'") this.ch = "";
+    this.result.push(this.ch);
+    this.state = JSONParser.states.OBJECT_KEY;
+  }
+
+  // Handles Object Key
+  state3() {
+    if (this.ch === '"' || this.ch === "'") {
+      this.ch = '"';
+      this.state = JSONParser.states.OBJECT_KEY_END;
+    } else if (this.ch === ":") {
+      this.result.push('"');
+      this.state = JSONParser.states.VALUE_START;
+    }
+    this.result.push(this.ch);
+  }
+
+  // Handles Object Key end
+  state4() {
+    this.state = JSONParser.states.VALUE_START;
+    if (this.ch === ":" || this.ch === "=") {
+      this.ch = ":";
+      this.result.push(this.ch);
+    } else {
+      this.result.push(":");
+      this.state0();
     }
   }
 
@@ -110,7 +122,7 @@ class JSONParser {
   state5() {
     if (this.ch === '"' || this.ch === "'") {
       this.ch = '"';
-      this.state = 8;
+      this.state = JSONParser.states.VALUE_END;
     }
     this.result.push(this.ch);
   }
@@ -123,8 +135,9 @@ class JSONParser {
       this.result.push(this.ch);
       this.isFloat = true;
     } else {
+      if (this.result.at(-1) === ".") this.result.push("0");
       this.isFloat = false;
-      this.state = 8;
+      this.state = JSONParser.states.VALUE_END;
       this.state8();
     }
   }
@@ -136,14 +149,14 @@ class JSONParser {
     if (keywords.includes(tmp)) {
       this.result.push(...Array.from(tmp));
       this.nullBool = "";
-      this.state = 8;
+      this.state = JSONParser.states.VALUE_END;
     } else if (keywords.find((w) => w.includes(tmp)) !== undefined) {
       this.nullBool += this.ch;
     } else {
       const keyword = keywords.find((w) => w.includes(this.nullBool));
       this.result.push(...Array.from(keyword));
       this.nullBool = "";
-      this.state = 8;
+      this.state = JSONParser.states.VALUE_END;
       this.state8();
     }
   }
@@ -153,7 +166,10 @@ class JSONParser {
     switch (this.ch) {
       case ",":
         this.result.push(this.ch);
-        this.state = this.needClose.at(-1) === "}" ? 1 : 4;
+        this.state =
+          this.needClose.at(-1) === "}"
+            ? JSONParser.states.OBJECT_END_OR_KEY_START
+            : JSONParser.states.VALUE_START;
         break;
       case "}":
       case "]":
@@ -165,7 +181,7 @@ class JSONParser {
       case '"':
         if (this.needClose.at(-1) === "}") {
           this.result.push(",", this.ch);
-          this.state = 2;
+          this.state = JSONParser.states.OBJECT_KEY;
         }
     }
   }
@@ -215,22 +231,19 @@ class JSONParser {
   handleLastState() {
     this.ch = null;
     switch (this.state) {
-      case 2:
+      case 0:
+        if (this.result.at(-1) === "[") break;
+        this.state0();
+        break;
+      case 3:
         if (this.result.at(-1) === '"') {
           this.result.push(...Array.from("autoFilled"));
         }
         this.ch = '"';
-        this.state2();
+        this.state3();
         this.ch = ":";
-        this.state3();
         this.state4();
-        break;
-      case 3:
-        this.state3();
-        break;
-      case 4:
-        if (this.result.at(-1) === "[") break;
-        this.state4();
+        this.state0();
         break;
       case 7:
         this.state7();
