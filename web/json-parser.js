@@ -1,22 +1,21 @@
 class JSONParser {
   static states = {
     VALUE_START: 0,
-    OBJECT_END_OR_KEY_START: 2,
-    OBJECT_KEY: 3,
-    OBJECT_KEY_END: 4,
-    STRING_VALUE: 5,
-    NUMBER_VALUE: 6,
-    VALUE_END: 8,
+    OBJECT_VALUE: 1,
+    OBJECT_KEY: 2,
+    OBJECT_KEY_END: 3,
+    STRING_VALUE: 4,
+    NUMBER_VALUE: 5,
+    VALUE_END: 6,
   };
 
   constructor() {
     this.state = 0; // Current state of the parser
     this.ch = null; // Current character being processed
     this.result = []; // Accumulated result string
-    this.needClose = []; // Stack to track open brackets/braces/quotes that need closing
-    this.isNumberZero = false; // Flag to indicate if a numeric value is starting with 0
+    this.needClose = []; // Stack to track open blocks that need closing
+    this.numberValue = []; // Accumulated number value
     this.isFloat = false; // Flag to indicate if a numeric value is a float
-    this.numberValue = [];
   }
 
   /**
@@ -29,7 +28,6 @@ class JSONParser {
     val = val.trim();
 
     if (val.length === 0) return "";
-    if (val.at(0) !== "{") val = "{" + val;
 
     for (const ch of val) {
       if (
@@ -44,12 +42,7 @@ class JSONParser {
     }
 
     this.handleLastState();
-
-    // Close remaining brackets/braces
-    while (this.needClose.length > 0) {
-      this.removeTrailingComma();
-      this.result.push(this.needClose.pop());
-    }
+    this.closeBlocks();
 
     const result = this.result.join("");
     console.log(result);
@@ -58,33 +51,33 @@ class JSONParser {
   }
 
   // Handles Value start (object, string, number, array, null, bool)
-  state0() {
+  handleValueStart() {
     switch (this.ch) {
       case "{":
         this.needClose.push("}");
-        this.result.push(this.ch);
-        this.state = JSONParser.states.OBJECT_END_OR_KEY_START;
+        this.resultPush();
+        this.state = JSONParser.states.OBJECT_VALUE;
         break;
       case '"':
       case "'":
         this.needClose.push('"');
-        this.result.push('"');
+        this.resultPush('"');
         this.state = JSONParser.states.STRING_VALUE;
         break;
       case "[":
         this.needClose.push("]");
-        this.result.push(this.ch);
+        this.resultPush();
         break;
       case "n":
-        this.result.push(..."null");
+        this.resultPush("null");
         this.state = JSONParser.states.VALUE_END;
         break;
       case "t":
-        this.result.push(..."true");
+        this.resultPush("true");
         this.state = JSONParser.states.VALUE_END;
         break;
       case "f":
-        this.result.push(..."false");
+        this.resultPush("false");
         this.state = JSONParser.states.VALUE_END;
         break;
       default:
@@ -92,65 +85,65 @@ class JSONParser {
           this.numberValue.push(this.ch);
           this.state = JSONParser.states.NUMBER_VALUE;
         } else {
-          this.result.push(..."null");
+          this.resultPush("null");
           this.state = JSONParser.states.VALUE_END;
         }
     }
   }
 
-  // Handles Object end or next key start
-  state2() {
+  // Handles Object
+  handleObjectValue() {
     if (this.ch === "}") {
       this.removeTrailingComma();
-      this.result.push(this.needClose.pop());
+      this.resultPush(this.needClose.pop());
       this.state = JSONParser.states.VALUE_END;
     } else {
-      if (this.ch !== '"') this.result.push('"');
+      if (this.ch !== '"') this.resultPush('"');
       if (this.ch === "'") this.ch = "";
       this.needClose.push('"');
-      this.result.push(this.ch);
+      this.resultPush();
       this.state = JSONParser.states.OBJECT_KEY;
     }
   }
 
   // Handles Object Key
-  state3() {
+  handleObjectKey() {
     if (this.ch === '"' || this.ch === "'") {
       this.needClose.pop();
       this.ch = '"';
       this.state = JSONParser.states.OBJECT_KEY_END;
     } else if (this.ch === ":") {
       this.needClose.pop();
-      this.result.push('"');
+      this.resultPush('"');
       this.state = JSONParser.states.VALUE_START;
     }
-    this.result.push(this.ch);
+    this.resultPush();
   }
 
   // Handles Object Key end
-  state4() {
+  handleObjectKeyEnd() {
     this.state = JSONParser.states.VALUE_START;
     if (this.ch === ":" || this.ch === "=") {
       this.ch = ":";
-      this.result.push(this.ch);
+      this.resultPush();
     } else {
-      this.result.push(":");
-      this.state0();
+      this.resultPush(":");
+      this.handleValueStart();
     }
   }
 
   // Handles String Value
-  state5() {
+  handleStringValue() {
     if (this.ch === '"' || this.ch === "'") {
       this.needClose.pop();
       this.ch = '"';
       this.state = JSONParser.states.VALUE_END;
     }
-    this.result.push(this.ch);
+    this.resultPush();
   }
 
   // Handles Number Value
-  state6() {
+  handleNumberValue() {
     if (this.isDigit()) {
       this.numberValue.push(this.ch);
     } else if (this.ch === "." && !this.isFloat) {
@@ -158,41 +151,48 @@ class JSONParser {
       this.isFloat = true;
     } else {
       const parsedNum = Number(this.numberValue.join("")).toString();
-      this.result.push(...parsedNum);
+      this.resultPush(parsedNum);
       this.numberValue = [];
       this.isFloat = false;
       this.state = JSONParser.states.VALUE_END;
-      this.state8();
+      this.handleValueEnd();
     }
   }
 
-  // Handles End of Value
-  state8() {
+  // Handles Value end
+  handleValueEnd() {
     switch (this.ch) {
       case ",":
-        this.result.push(this.ch);
-        this.state =
-          this.needClose.at(-1) === "}"
-            ? JSONParser.states.OBJECT_END_OR_KEY_START
-            : JSONParser.states.VALUE_START;
+        if (this.needClose.length > 0) {
+          this.resultPush();
+          this.state =
+            this.needClose.at(-1) === "}"
+              ? JSONParser.states.OBJECT_VALUE
+              : JSONParser.states.VALUE_START;
+        }
         break;
 
       case "}":
       case "]":
         if (this.needClose.at(-1) === this.ch) {
           this.removeTrailingComma();
-          this.result.push(this.needClose.pop());
+          this.resultPush(this.needClose.pop());
         }
         break;
 
       case '"':
         if (this.needClose.at(-1) === "}") {
           this.needClose.push('"');
-          this.result.push(",", this.ch);
+          this.resultPush(",");
+          this.resultPush();
           this.state = JSONParser.states.OBJECT_KEY;
         }
         break;
     }
+  }
+
+  resultPush(val = this.ch) {
+    this.result.push(...val);
   }
 
   isDigit() {
@@ -206,21 +206,28 @@ class JSONParser {
   }
 
   handleState() {
-    const stateHandlers = [
-      this.state0,
-      this.state1,
-      this.state2,
-      this.state3,
-      this.state4,
-      this.state5,
-      this.state6,
-      this.state7,
-      this.state8,
-    ];
-
-    const handler = stateHandlers[this.state];
-    if (handler) {
-      handler.call(this);
+    switch (this.state) {
+      case JSONParser.states.VALUE_START:
+        this.handleValueStart();
+        break;
+      case JSONParser.states.OBJECT_VALUE:
+        this.handleObjectValue();
+        break;
+      case JSONParser.states.OBJECT_KEY:
+        this.handleObjectKey();
+        break;
+      case JSONParser.states.OBJECT_KEY_END:
+        this.handleObjectKeyEnd();
+        break;
+      case JSONParser.states.STRING_VALUE:
+        this.handleStringValue();
+        break;
+      case JSONParser.states.NUMBER_VALUE:
+        this.handleNumberValue();
+        break;
+      case JSONParser.states.VALUE_END:
+        this.handleValueEnd();
+        break;
     }
   }
 
@@ -228,27 +235,36 @@ class JSONParser {
     this.ch = "";
 
     switch (this.state) {
-      case 0:
-        if (this.result.at(-1) !== "[") {
-          this.state0();
+      case this.state.VALUE_START:
+        if (this.result.at(-1) !== "[" && this.result.at(-1) !== ",") {
+          this.handleValueStart();
         }
         break;
 
-      case 3:
+      case this.state.OBJECT_KEY:
         if (this.result.at(-1) === '"') {
-          this.result.push(..."autoFilled");
+          this.resultPush("autoFilled");
         }
-        this.result.push(...'":null');
+        this.resultPush('":null');
         this.needClose.pop();
         break;
 
-      case 4:
-        this.state4();
+      case this.state.OBJECT_KEY_END:
+        this.handleObjectKeyEnd();
         break;
 
-      case 6:
-        this.state6();
+      case this.state.NUMBER_VALUE:
+        this.handleNumberValue();
         break;
     }
+  }
+
+  // Close remaining brackets/braces
+  closeBlocks() {
+    while (this.needClose.length > 0) {
+      this.removeTrailingComma();
+      this.resultPush(this.needClose.pop());
+    }
+    this.removeTrailingComma();
   }
 }
